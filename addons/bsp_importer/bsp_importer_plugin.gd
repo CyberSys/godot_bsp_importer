@@ -103,6 +103,7 @@ func _get_import_options(path : String, preset_index : int):
 						bsp_preset.use_triangle_collision = import_config.get_value("params", "use_triangle_collision", false)
 						bsp_preset.ignore_missing_entities = import_config.get_value("params", "ignore_missing_entities", false)
 						bsp_preset.post_import_script = import_config.get_value("params", "post_import_script", "")
+						bsp_preset.import_singleton_name = import_config.get_value("params", "import_singleton_name", "")
 
 				if (!bsp_preset):
 					bsp_preset = preload("res://addons/bsp_importer/examples/preset_example.tres")
@@ -263,7 +264,12 @@ func _get_import_options(path : String, preset_index : int):
 						{
 							"name" : "post_import_script",
 							"default_value" : ""
-						}]
+						},
+						{
+							"name" : "import_singleton_name",
+							"default_value" : ""
+						}
+						]
 					_:
 						return []
 	return []
@@ -327,6 +333,7 @@ func _import(source_file : String, save_path : String, options : Dictionary, r_p
 				bsp_reader.mesh_separation_grid_size = preset.mesh_separation_grid_size
 				bsp_reader.ignore_missing_entities = preset.ignore_missing_entities
 				bsp_reader.post_import_script_path = preset.post_import_script
+				bsp_reader.import_singleton_name = preset.import_singleton_name
 			else:
 				print("Importing BSP from import settings.")
 				bsp_reader.unit_scale = 1.0 / options.inverse_scale_factor
@@ -360,6 +367,7 @@ func _import(source_file : String, save_path : String, options : Dictionary, r_p
 				bsp_reader.mesh_separation_grid_size = options.mesh_separation_grid_size
 				bsp_reader.ignore_missing_entities = options.ignore_missing_entities
 				bsp_reader.post_import_script_path = options.post_import_script
+				bsp_reader.import_singleton_name = options.import_singleton_name
 
 			var bsp_scene := bsp_reader.read_bsp(source_file)
 			if (!bsp_scene):

@@ -61,3 +61,5 @@ class_name BSPImportPreset
 @export var ignore_missing_entities := false
 ## Script to execute after importing for any custom post-import cleanup.
 @export_file("*.gd") var post_import_script := ""
+## Optional autoload singleton for importing.
+@export var import_singleton_name : String = ""

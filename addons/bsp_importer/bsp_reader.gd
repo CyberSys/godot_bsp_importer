@@ -157,7 +157,7 @@ class BSPTexture:
 		file.get_32() # for mip levels
 		name = name.to_lower()
 		#current_file_offset = file.get_position()
-		print("texture: ", name, " width: ", width, " height: ", height)
+		#print("texture: ", name, " width: ", width, " height: ", height)
 		if (name != &"skip" && name != &"trigger" && name != &"waterskip" && name != &"slimeskip" && name != &"clip" && (reader.include_sky_surfaces || !name.begins_with("sky"))):
 			var material_info := reader.load_or_create_material(name, self)
 			if (material_info):
@@ -353,6 +353,8 @@ var use_triangle_collision := false
 var culling_textures_exclude : Array[StringName]
 var generate_lightmap_uv2 := true
 var post_import_script_path : String
+var import_singleton_name : String
+var import_singleton : Node = null
 var ignore_missing_entities := false
 var separate_mesh_on_grid := false
 var generate_texture_materials := false
@@ -363,6 +365,7 @@ var bspx_model_to_brush_map : Dictionary[int, BSPXModelBrushes] = {}
 var fullbright_range : PackedInt32Array = [224, 255]
 var ignored_flags : PackedInt64Array = []
 var include_sky_surfaces := true
+
 
 # used for reading wads for goldsrc games.
 var is_gsrc : bool = false 
@@ -410,6 +413,11 @@ class BSPXModelBrushes:
 func read_bsp(source_file : String) -> Node:
 	clear_data() # Probably not necessary, but just in case somebody reads a bsp file with the same instance
 	print("Attempting to import %s" % source_file)
+	#import_singleton = Engine.get_singleton(
+	var scene_tree := Engine.get_main_loop()
+	
+	if (import_singleton_name):
+		import_singleton = scene_tree.root.get_node(str("/root/", import_singleton_name))
 	print("Material path pattern: ", material_path_pattern)
 	file = FileAccess.open(source_file, FileAccess.READ)
 	
@@ -1100,7 +1108,10 @@ func read_bsp(source_file : String) -> Node:
 				printerr("Post import script does not have post_import() function.")
 		else:
 			printerr("Invalid script path: ", post_import_script_path)
-	#print("Post import nodes: ", post_import_nodes)
+	if (import_singleton && import_singleton.has_method(&"bsp_post_import")):
+		import_singleton.bsp_post_import(root_node)
+	for node in post_import_nodes_singleton:
+		import_singleton.bsp_post_import_entity(node, root_node)
 	for node in post_import_nodes:
 		node.post_import(root_node)
 
@@ -1142,7 +1153,7 @@ func apply_surface_info_to_collision(bsp_texture : BSPTexture, model_index : int
 							meta.append(collision_surface_info)
 							brush.collision_shape.set_meta(&"surface_info", meta)
 							brush.collision_shape.set_meta(&"has_alpha_test", true) # NOTE: If we add other material info this way we'll need to do a check for this before adding.
-							print("Metadata set verts: ", collision_surface_info.verts)
+							#print("Metadata set verts: ", collision_surface_info.verts)
 							return
 
 
@@ -1196,6 +1207,7 @@ func parse_entity_string(entity_string : String) -> Array:
 const WORLDSPAWN_STRING_NAME := &"worldspawn"
 const LIGHT_STRING_NAME := &"light"
 var post_import_nodes : Array[Node] = []
+var post_import_nodes_singleton : Array[Node] = []
 
 
 func convert_entity_dict_to_scene(ent_dict_array : Array):
@@ -1222,6 +1234,8 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 					else:
 						if (scene_node.has_method(&"post_import")):
 							post_import_nodes.append(scene_node)
+						if (import_singleton && import_singleton.has_method(&"bsp_post_import_entity")):
+							post_import_nodes_singleton.append(scene_node)
 						add_generic_entity(scene_node, ent_dict)
 
 						# Imported script might need to know all values in the entity dictionary ahead of time, so optionally send that as well.
@@ -1247,7 +1261,9 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 								else:
 									if (scene_node.set_import_value(key, string_value)):
 										continue
-
+							if (import_singleton && import_singleton.has_method("bsp_import_set_entity_value")):
+								if (import_singleton.bsp_import_set_entity_value(scene_node, classname, key, string_value)):
+									continue
 							var dest_value = scene_node.get(key) # Se if we can figure out the type of the destination value
 							if (dest_value != null):
 								var dest_type := typeof(dest_value)
@@ -1826,7 +1842,7 @@ func load_or_create_material(name : StringName, bsp_texture : BSPTexture = null)
 
 func get_texture_from_material(material : Material) -> Texture2D:
 	if (material is BaseMaterial3D):
-		print("Attempting to get image size from base material.")
+		#print("Attempting to get image size from base material.")
 		return material.albedo_texture
 	elif (material is ShaderMaterial):
 		var parameters_to_check : PackedStringArray = [ "albedo_texture", "texture_albedo", "texture", "albedo", "texture_diffuse" ]
@@ -1834,7 +1850,7 @@ func get_texture_from_material(material : Material) -> Texture2D:
 			# Might not exist/be a texture, so we need to test for htat.
 			var test_texture = material.get_shader_parameter(param_name)
 			if (test_texture is Texture2D):
-				print("Got ", param_name, " from ShaderMaterial.")
+				#print("Got ", param_name, " from ShaderMaterial.")
 				return test_texture
 		print("No texture found in shader material with these parameters: ", parameters_to_check)
 	return null
@@ -2336,3 +2352,51 @@ func make_collisions_q2(file_access: FileAccess) -> Array[CollisionShape3D]:
 		collisions.append(collision_shape)
 		collision_shape.set_name(str("collision_brush_%s"%idx))
 	return collisions
+
+## A helpful function that can be used in post_import to determine the bounds of a brush entity
+static func get_brush_entity_mins_maxs(entity : Node3D) -> Array[Vector3]:
+	var mins_maxs : Array[Vector3] = []
+	var mins : Vector3 = Vector3.INF
+	var maxs : Vector3 = -Vector3.INF
+	var collision_found := false
+	for child in entity.get_children():
+		#print("child ",child)
+		if (child is CollisionShape3D):
+			var shape = child.shape
+			if (shape is ConvexPolygonShape3D):
+				collision_found = true
+				for point in shape.points:
+					point = child.transform * point
+					mins = Utils.vec_min(mins, point)
+					maxs = Utils.vec_max(maxs, point)
+			elif (shape is BoxShape3D):
+				collision_found = true
+				# Since these can be transformed, the negative shape might not actually be the min.
+				var a : Vector3 = child.transform * (-shape.size * 0.5)
+				var b : Vector3 = child.transform * (shape.size * 0.5)
+				mins = Utils.vec_min(mins, a)
+				mins = Utils.vec_min(mins, b)
+				maxs = Utils.vec_max(maxs, a)
+				maxs = Utils.vec_max(maxs, b)
+			else:
+				printerr("Unhandled shape in ", entity, ": ", shape)
+
+	if (collision_found):
+		mins_maxs.push_back(mins)
+		mins_maxs.push_back(maxs)
+	else:
+		printerr("No collision shapes found for mins_maxs on ", entity)
+	return mins_maxs
+
+## Helper function that can be used in post_import scripts to do things like place sound emitters and such at the center of the entity.
+static func get_brush_entity_center(entity : Node3D) -> Vector3:
+	# Figure out the center of the bounding box to place a sound player.
+	var mins_maxs := get_brush_entity_mins_maxs(entity)
+	var center : Vector3
+	if (mins_maxs.size() > 1):
+		center = (mins_maxs[0] + mins_maxs[1]) * 0.5
+		#print("brush_entity_center ", center, " mins ", mins_maxs[0], " maxs ", mins_maxs[1])
+	else:
+		center = entity.position
+		print("mins/maxs not found to get center, using entity position")
+	return center
