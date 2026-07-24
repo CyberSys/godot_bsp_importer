@@ -233,12 +233,11 @@ func _get_import_options(path : String, preset_index : int):
 							"name" : "generate_occlusion_culling",
 							"default_value" : true
 						},
-						# This doesn't work properly, yet.
-						#{
+						{
 							### Generates an optimized mesh for shadow rendering (single material, merged verts)
-							#"name" : "generate_shadow_mesh",
-							#"default_value" : true
-						#},
+							"name" : "generate_shadow_mesh",
+							"default_value" : true
+						},
 						{
 							"name" : "culling_textures_exclude",
 							"default_value" : [] as Array[StringName],
@@ -327,7 +326,7 @@ func _import(source_file : String, save_path : String, options : Dictionary, r_p
 				bsp_reader.light_brightness_scale = preset.light_brightness_scale
 				bsp_reader.generate_occlusion_culling = preset.generate_occlusion_culling
 				bsp_reader.culling_textures_exclude = preset.culling_textures_exclude
-				#bsp_reader.generate_shadow_mesh = preset.generate_shadow_mesh # Not fully implemented, yet
+				bsp_reader.generate_shadow_mesh = preset.generate_shadow_mesh
 				bsp_reader.use_triangle_collision = preset.use_triangle_collision
 				bsp_reader.separate_mesh_on_grid = preset.separate_mesh_on_grid
 				bsp_reader.mesh_separation_grid_size = preset.mesh_separation_grid_size
@@ -361,7 +360,7 @@ func _import(source_file : String, save_path : String, options : Dictionary, r_p
 				bsp_reader.light_brightness_scale = options.light_brightness_scale
 				bsp_reader.generate_occlusion_culling = options.generate_occlusion_culling
 				bsp_reader.culling_textures_exclude = options.culling_textures_exclude
-				#bsp_reader.generate_shadow_mesh = options.generate_shadow_mesh # Not fully implemented yet.
+				bsp_reader.generate_shadow_mesh = options.generate_shadow_mesh
 				bsp_reader.use_triangle_collision = options.use_triangle_collision
 				bsp_reader.separate_mesh_on_grid = options.separate_mesh_on_grid
 				bsp_reader.mesh_separation_grid_size = options.mesh_separation_grid_size

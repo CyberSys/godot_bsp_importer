@@ -348,7 +348,7 @@ var unit_scale : float = 1.0 / 32.0
 var import_lights := true
 var light_brightness_scale := 16.0
 var generate_occlusion_culling := true
-var generate_shadow_mesh := false
+var generate_shadow_mesh := true
 var use_triangle_collision := false
 var culling_textures_exclude : Array[StringName]
 var generate_lightmap_uv2 := true
@@ -995,6 +995,7 @@ func read_bsp(source_file : String) -> Node:
 					parent_node.add_child(mesh_instance, true)
 					mesh_instance.transform = parent_inv_transform
 					mesh_instance.owner = root_node
+					mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			# Create meshes for each cell in the mesh grid.
 			for grid_index in mesh_grid:
 				var surface_tools : Dictionary = mesh_grid[grid_index] # Is there a way to loop through the keys instead?
@@ -1043,29 +1044,21 @@ func read_bsp(source_file : String) -> Node:
 						occluder_instance.owner = root_node
 
 					var shadow_mesh : ArrayMesh = null
-					if (generate_shadow_mesh):
+					if (generate_shadow_mesh && array_mesh):
 						print("Generating shadow mesh...")
-						# TODO: Merge verts.
-						# Ideally create_shadow_mesh() from the engine could be exposed and placed on the ArrayMesh class.
-						var vertices := PackedVector3Array()
-						var indices := PackedInt32Array()
+						# This is pretty ugly, but Godot has to have a 1:1 surface for the shadow mesh, which kind of defeats the purpose,
+						# So instead of using the built-in shadow mesh, we're going to create a separate mesh that only renders shadow
+						# and disable shadows on the regular mesh.
+						var shadow_mesh_instance := MeshInstance3D.new()
+						mesh_instance.add_sibling(shadow_mesh_instance)
+						shadow_mesh_instance.name = &"ShadowMeshInstance"
+						var surf_tool_solid := SurfaceTool.new()
 						for i in array_mesh.get_surface_count():
-							var offset = vertices.size()
-							var arrays := array_mesh.surface_get_arrays(i)
-							vertices.append_array(arrays[ArrayMesh.ARRAY_VERTEX])
-							if arrays[ArrayMesh.ARRAY_INDEX] == null:
-								indices.append_array(range(offset, offset + arrays[ArrayMesh.ARRAY_VERTEX].size()))
-							else:
-								for index in arrays[ArrayMesh.ARRAY_INDEX]:
-									indices.append(index + offset)
-						if (indices.size() >= 3): # Make sure we have at least 1 face.
-							shadow_mesh = ArrayMesh.new()
-							var mesh_arrays := []
-							mesh_arrays.resize(ArrayMesh.ARRAY_MAX)
-							indices.resize(3) # TESTING
-							mesh_arrays[ArrayMesh.ARRAY_VERTEX] = vertices
-							mesh_arrays[ArrayMesh.ARRAY_INDEX] = indices
-							shadow_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, mesh_arrays, [], {}, ArrayMesh.ArrayFormat.ARRAY_FORMAT_VERTEX)
+							surf_tool_solid.append_from(array_mesh, i, Transform3D())
+						shadow_mesh_instance.mesh = surf_tool_solid.commit()
+						shadow_mesh_instance.owner = root_node
+						shadow_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+						mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 					# Add non-occluding materials to the mesh after we've generated occlusion
 					if (has_nocull_materials):
@@ -1076,13 +1069,16 @@ func read_bsp(source_file : String) -> Node:
 
 					array_mesh.shadow_mesh = shadow_mesh # This will be null if generate_shadow_mesh isn't set.
 					mesh_instance.mesh = array_mesh
+
 					#print("Shadow mesh: ", shadow_mesh.get_surface_count(), ", ", shadow_mesh.get_faces())
 					if (shadow_mesh):
 						print("Shadow mesh: ", shadow_mesh.get_surface_count())
-					
+
 					if (generate_lightmap_uv2):
-						var err = mesh_instance.mesh.lightmap_unwrap(mesh_instance.global_transform, unit_scale * 4.0)
-						#print("Lightmap unwrap result: ", err)
+						var transform := Transform3D() # Can't get mesh_instance.global_transform since it's not in a tree.  Not sure if this matters, as I don't think there will be any scaling.
+						var err = mesh_instance.mesh.lightmap_unwrap(transform, unit_scale * 4.0)
+						if (err != OK):
+							print("Lightmap unwrap result: ", err)
 
 				if (use_triangle_collision):
 					var collision_shape := CollisionShape3D.new()
@@ -1212,6 +1208,10 @@ var post_import_nodes_singleton : Array[Node] = []
 
 func convert_entity_dict_to_scene(ent_dict_array : Array):
 	post_import_nodes = []
+	var has_post_import_singleton := import_singleton && import_singleton.has_method(&"bsp_post_import_entity")
+	var has_import_singleton_ent_val := import_singleton && import_singleton.has_method(&"bsp_import_set_entity_value")
+	var has_import_singleton_ent_start := import_singleton && import_singleton.has_method(&"bsp_import_entity_start")
+
 	for ent_dict in ent_dict_array:
 		if (ent_dict.has(&"classname")):
 			var classname : StringName = ent_dict[&"classname"].to_lower()
@@ -1234,7 +1234,7 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 					else:
 						if (scene_node.has_method(&"post_import")):
 							post_import_nodes.append(scene_node)
-						if (import_singleton && import_singleton.has_method(&"bsp_post_import_entity")):
+						if (has_post_import_singleton):
 							post_import_nodes_singleton.append(scene_node)
 						add_generic_entity(scene_node, ent_dict)
 
@@ -1245,6 +1245,8 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 							else:
 								scene_node.set_entity_dictionary(ent_dict)
 
+						if (has_import_singleton_ent_start):
+							import_singleton.bsp_import_entity_start(scene_node, classname, root_node)
 						# For every key/value pair in the entity, see if there's a corresponding
 						# variable in the gdscript and set it.
 						for key in ent_dict.keys():
@@ -1261,7 +1263,7 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 								else:
 									if (scene_node.set_import_value(key, string_value)):
 										continue
-							if (import_singleton && import_singleton.has_method("bsp_import_set_entity_value")):
+							if (has_import_singleton_ent_val):
 								if (import_singleton.bsp_import_set_entity_value(scene_node, classname, key, string_value)):
 									continue
 							var dest_value = scene_node.get(key) # Se if we can figure out the type of the destination value
@@ -2353,6 +2355,17 @@ func make_collisions_q2(file_access: FileAccess) -> Array[CollisionShape3D]:
 		collision_shape.set_name(str("collision_brush_%s"%idx))
 	return collisions
 
+
+## Returns the minimum value of each component
+static func vec_min(vec1 : Vector3, vec2 : Vector3) -> Vector3:
+	return Vector3(minf(vec1.x, vec2.x), minf(vec1.y, vec2.y), minf(vec1.z, vec2.z))
+
+
+## Returns the maximum value of each component
+static func vec_max(vec1 : Vector3, vec2 : Vector3) -> Vector3:
+	return Vector3(maxf(vec1.x, vec2.x), maxf(vec1.y, vec2.y), maxf(vec1.z, vec2.z))
+
+
 ## A helpful function that can be used in post_import to determine the bounds of a brush entity
 static func get_brush_entity_mins_maxs(entity : Node3D) -> Array[Vector3]:
 	var mins_maxs : Array[Vector3] = []
@@ -2367,17 +2380,17 @@ static func get_brush_entity_mins_maxs(entity : Node3D) -> Array[Vector3]:
 				collision_found = true
 				for point in shape.points:
 					point = child.transform * point
-					mins = Utils.vec_min(mins, point)
-					maxs = Utils.vec_max(maxs, point)
+					mins = vec_min(mins, point)
+					maxs = vec_max(maxs, point)
 			elif (shape is BoxShape3D):
 				collision_found = true
 				# Since these can be transformed, the negative shape might not actually be the min.
 				var a : Vector3 = child.transform * (-shape.size * 0.5)
 				var b : Vector3 = child.transform * (shape.size * 0.5)
-				mins = Utils.vec_min(mins, a)
-				mins = Utils.vec_min(mins, b)
-				maxs = Utils.vec_max(maxs, a)
-				maxs = Utils.vec_max(maxs, b)
+				mins = vec_min(mins, a)
+				mins = vec_min(mins, b)
+				maxs = vec_max(maxs, a)
+				maxs = vec_max(maxs, b)
 			else:
 				printerr("Unhandled shape in ", entity, ": ", shape)
 
