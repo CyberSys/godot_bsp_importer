@@ -636,27 +636,27 @@ func read_bsp(source_file : String) -> Node:
 					if (plane_left in planes_brush_map):
 						planes_brush_map[plane_left].append(brush_total_index)
 					else:
-						planes_brush_map[plane_left] = [brush_total_index]
+						planes_brush_map[plane_left] = PackedInt32Array([brush_total_index])
 					if (plane_right in planes_brush_map):
 						planes_brush_map[plane_right].append(brush_total_index)
 					else:
-						planes_brush_map[plane_right] = [brush_total_index]
+						planes_brush_map[plane_right] = PackedInt32Array([brush_total_index])
 					if (plane_up in planes_brush_map):
 						planes_brush_map[plane_up].append(brush_total_index)
 					else:
-						planes_brush_map[plane_up] = [brush_total_index]
+						planes_brush_map[plane_up] = PackedInt32Array([brush_total_index])
 					if (plane_down in planes_brush_map):
 						planes_brush_map[plane_down].append(brush_total_index)
 					else:
-						planes_brush_map[plane_down] = [brush_total_index]
+						planes_brush_map[plane_down] = PackedInt32Array([brush_total_index])
 					if (plane_forward in planes_brush_map):
 						planes_brush_map[plane_forward].append(brush_total_index)
 					else:
-						planes_brush_map[plane_forward] = [brush_total_index]
+						planes_brush_map[plane_forward] = PackedInt32Array([brush_total_index])
 					if (plane_back in planes_brush_map):
 						planes_brush_map[plane_back].append(brush_total_index)
 					else:
-						planes_brush_map[plane_back] = [brush_total_index]
+						planes_brush_map[plane_back] = PackedInt32Array([brush_total_index])
 					bytes_read += 2
 					var num_bspx_planes := file.get_16()
 					bytes_read += 2
@@ -670,7 +670,7 @@ func read_bsp(source_file : String) -> Node:
 						if (plane in planes_brush_map):
 							planes_brush_map[plane].append(brush_total_index)
 						else:
-							planes_brush_map[plane] = [brush_total_index]
+							planes_brush_map[plane] = PackedInt32Array([brush_total_index])
 					brush_array.append(bspx_brush)
 					brush_total_index += 1
 				brush_stuff.brush_array = brush_array
