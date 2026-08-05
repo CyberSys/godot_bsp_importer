@@ -1056,6 +1056,7 @@ func read_bsp(source_file : String) -> Node:
 						for i in array_mesh.get_surface_count():
 							surf_tool_solid.append_from(array_mesh, i, Transform3D())
 						shadow_mesh_instance.mesh = surf_tool_solid.commit()
+						shadow_mesh_instance.transform = parent_inv_transform
 						shadow_mesh_instance.owner = root_node
 						shadow_mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
 						mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
