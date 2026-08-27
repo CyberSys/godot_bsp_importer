@@ -365,6 +365,8 @@ var bspx_model_to_brush_map : Dictionary[int, BSPXModelBrushes] = {}
 var fullbright_range : PackedInt32Array = [224, 255]
 var ignored_flags : PackedInt64Array = []
 var include_sky_surfaces := true
+var node_to_parent_name : Dictionary[Node, String] = {} # If an entity requests a parent by name, keep track of it in here
+var name_to_node_map : Dictionary[String, Node] = {} # Store named nodes in here.
 
 
 # used for reading wads for goldsrc games.
@@ -387,6 +389,8 @@ func clear_data():
 	plane_distances = []
 	model_scenes = {}
 	wad_paths.clear()
+	node_to_parent_name = {}
+	name_to_node_map = {}
 
 
 # To find the end of a block of lumps
@@ -418,6 +422,11 @@ func read_bsp(source_file : String) -> Node:
 	
 	if (import_singleton_name):
 		import_singleton = scene_tree.root.get_node(str("/root/", import_singleton_name))
+		if (!import_singleton):
+			printerr("Import singleton name (", import_singleton_name, ") specified, but could not retrieve the node.")
+		else:
+			if (import_singleton.has_method(&"bsp_import_start")):
+				import_singleton.bsp_import_start(source_file)
 	print("Material path pattern: ", material_path_pattern)
 	file = FileAccess.open(source_file, FileAccess.READ)
 	
@@ -1090,6 +1099,18 @@ func read_bsp(source_file : String) -> Node:
 					collision_shape.owner = root_node
 					# Apparently we have to let the gc handle this autamically now: file.close()
 
+	# Parent children to their desired nodes.
+	for node in node_to_parent_name:
+		var parent_name : String = node_to_parent_name[node]
+		if (!name_to_node_map.has(parent_name)):
+			printerr("Entity requested parent of name ", parent_name, " but no node with that name was found.")
+		else:
+			#print("Changed parent to ", parent_name)
+			var new_parent := name_to_node_map[parent_name]
+			node.get_parent().remove_child(node)
+			new_parent.add_child(node)
+
+	# Run post-import functions
 	if (post_import_script_path):
 		var post_import_node := Node.new()
 		print("Loading post import script: ", post_import_script_path)
@@ -1212,6 +1233,7 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 	var has_post_import_singleton := import_singleton && import_singleton.has_method(&"bsp_post_import_entity")
 	var has_import_singleton_ent_val := import_singleton && import_singleton.has_method(&"bsp_import_set_entity_value")
 	var has_import_singleton_ent_start := import_singleton && import_singleton.has_method(&"bsp_import_entity_start")
+	var has_import_singleton_ent_dict := import_singleton && import_singleton.has_method(&"bsp_import_entity_dictionary")
 
 	for ent_dict in ent_dict_array:
 		if (ent_dict.has(&"classname")):
@@ -1239,6 +1261,10 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 							post_import_nodes_singleton.append(scene_node)
 						add_generic_entity(scene_node, ent_dict)
 
+						if (has_import_singleton_ent_start):
+							import_singleton.bsp_import_entity_start(scene_node, classname, root_node)
+						if (has_import_singleton_ent_dict):
+							import_singleton.bsp_import_entity_dictionary(scene_node, classname, ent_dict, root_node)
 						# Imported script might need to know all values in the entity dictionary ahead of time, so optionally send that as well.
 						if (scene_node.has_method(&"set_entity_dictionary")):
 							if (!scene_node.get_script().is_tool()):
@@ -1246,8 +1272,6 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 							else:
 								scene_node.set_entity_dictionary(ent_dict)
 
-						if (has_import_singleton_ent_start):
-							import_singleton.bsp_import_entity_start(scene_node, classname, root_node)
 						# For every key/value pair in the entity, see if there's a corresponding
 						# variable in the gdscript and set it.
 						for key in ent_dict.keys():
@@ -1313,6 +1337,7 @@ func add_generic_entity(scene_node : Node, ent_dict : Dictionary):
 	var angle_string : String = ent_dict.get("angle", "")
 	var angles_string : String = ent_dict.get("angles", "")
 	var entity_name : String = ent_dict.get("name", "") # Optional name paramater
+	var parent_name : String = ent_dict.get("parent", "") # Optionally specify the parent (so you can have things like buttons on platforms)
 	var basis := Basis()
 	if (angle_string.length() > 0):
 		basis = angle_string_to_basis(angle_string)
@@ -1326,6 +1351,9 @@ func add_generic_entity(scene_node : Node, ent_dict : Dictionary):
 	scene_node.owner = root_node
 	if (!entity_name.is_empty()):
 		scene_node.name = entity_name
+		name_to_node_map[entity_name] = scene_node
+	if (!parent_name.is_empty()):
+		node_to_parent_name[scene_node] = parent_name
 	if (ent_dict.has("model")):
 		var model_value : String = ent_dict["model"]
 		# Models that start with a * are contained with in the BSP file (ex: doors, triggers, etc)
